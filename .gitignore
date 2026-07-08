@@ -1,0 +1,40 @@
+# ===== Embedded (PSOC Edge) =====
+embedded/**/build/
+embedded/**/.cache/
+embedded/**/.settings/
+embedded/**/.mtbLaunchConfigs/
+embedded/**/.clangd
+embedded/**/.cproject
+embedded/**/.project
+embedded/**/.ninja_log
+embedded/**/.mtbqueryapi
+embedded/**/libs/
+embedded/**/deps/
+embedded/**/*.o
+embedded/**/*.elf
+embedded/**/*.hex
+embedded/**/*.bin
+embedded/**/*.map
+embedded/**/*.mk
+!embedded/*.mk
+!embedded/proj_cm*/Makefile
+embedded/build/
+
+# ===== Cloud =====
+cloud/**/node_modules/
+cloud/**/__pycache__/
+cloud/**/*.pyc
+cloud/**/venv/
+cloud/**/.env
+cloud/deploy_package.tar.gz
+cloud/**/*.log
+
+# ===== Common =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.tmp

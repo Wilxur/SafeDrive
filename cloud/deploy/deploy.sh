@@ -1,0 +1,124 @@
+#!/bin/bash
+# ============================================
+# 疲劳驾驶检测系统 - Linux 部署脚本
+# 用法: sudo bash deploy.sh
+# ============================================
+
+set -e
+
+APP_DIR="/opt/fatigue-driving"
+BACKEND_DIR="${APP_DIR}/backend"
+FRONTEND_DIR="${APP_DIR}/frontend"
+
+echo "========================================"
+echo "  疲劳驾驶检测系统 - 部署脚本"
+echo "========================================"
+
+# ---------- 检测操作系统和包管理器 ----------
+if command -v apt-get &>/dev/null; then
+    PKG_MGR="apt"
+    echo "检测到系统: Debian/Ubuntu (apt)"
+elif command -v dnf &>/dev/null; then
+    PKG_MGR="dnf"
+    echo "检测到系统: RHEL/CentOS/Fedora (dnf)"
+elif command -v yum &>/dev/null; then
+    PKG_MGR="yum"
+    echo "检测到系统: CentOS/Alibaba Cloud Linux (yum)"
+else
+    echo "错误: 无法检测包管理器"
+    exit 1
+fi
+
+# ---------- 1. 创建目录结构 ----------
+echo ""
+echo "[1/6] 创建目录结构..."
+mkdir -p "${BACKEND_DIR}"
+mkdir -p "${FRONTEND_DIR}/dist"
+mkdir -p /var/log/nginx
+
+# ---------- 2. 安装系统依赖 ----------
+echo ""
+echo "[2/6] 安装系统依赖..."
+
+if [ "${PKG_MGR}" = "apt" ]; then
+    apt-get update -y
+    apt-get install -y python3 python3-pip python3-venv nginx mysql-server
+elif [ "${PKG_MGR}" = "dnf" ]; then
+    dnf install -y epel-release
+    dnf module enable -y nginx:1.24 2>/dev/null || true
+    dnf install -y python3 python3-pip python3-devel nginx mysql-server
+elif [ "${PKG_MGR}" = "yum" ]; then
+    # CentOS 7 / Alibaba Cloud Linux
+    yum install -y epel-release
+    # 尝试安装 nginx（可能需要先启用 epel）
+    yum install -y nginx --disableexcludes=all --disableexcludes=all --disableexcludes=all || echo "nginx 安装失败，请手动安装"
+    # mysql 可能要用 mariadb 替代
+#    yum install -y mysql-server mariadb-server 2>/dev/null || echo "请手动安装 MySQL/MariaDB"
+    yum install -y python3 python3-pip python3-devel 2>/dev/null || yum install -y python36 python36-pip python36-devel
+fi
+
+# ---------- 3. 配置后端 ----------
+echo ""
+echo "[3/6] 配置后端 Python 环境..."
+python3 -m venv "${BACKEND_DIR}/venv"
+source "${BACKEND_DIR}/venv/bin/activate"
+pip install --upgrade pip
+pip install -r "${BACKEND_DIR}/requirements.txt"
+pip install gunicorn
+deactivate
+
+# ---------- 4. 初始化数据库 ----------
+echo ""
+echo "[4/6] 初始化数据库..."
+
+# 启动数据库
+if systemctl list-units --type=service 2>/dev/null | grep -q mysqld; then
+#    systemctl enable --now mysqld 2>/dev/null || true
+elif systemctl list-units --type=service 2>/dev/null | grep -q mariadb; then
+    systemctl enable --now mariadb 2>/dev/null || true
+elif systemctl list-units --type=service 2>/dev/null | grep -q mysql; then
+    systemctl enable --now mysql 2>/dev/null || true
+fi
+
+echo "请确保 MySQL/MariaDB 已启动，然后执行:"
+echo "  1. 编辑 ${BACKEND_DIR}/.env.production，修改 DB_PASSWORD 等配置"
+echo "  2. 导入数据库: mysql -u root -p < ${APP_DIR}/database/schema.sql"
+echo "  3. 初始化数据: cd ${BACKEND_DIR} && source venv/bin/activate && python init_db.py"
+
+# ---------- 5. 配置 Nginx ----------
+echo ""
+echo "[5/6] 配置 Nginx..."
+
+# 删除默认配置防止端口冲突
+rm -f /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default 2>/dev/null || true
+cp "${APP_DIR}/deploy/nginx.conf" /etc/nginx/conf.d/fatigue-driving.conf
+
+if nginx -t 2>/dev/null; then
+    systemctl enable --now nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+    echo "Nginx 配置成功"
+else
+    echo "Nginx 配置测试失败，请手动检查: nginx -t"
+fi
+
+# ---------- 6. 配置 Systemd 服务 ----------
+echo ""
+echo "[6/6] 配置 Systemd 服务..."
+cp "${APP_DIR}/deploy/fatigue-driving.service" /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable fatigue-driving
+systemctl start fatigue-driving 2>/dev/null || echo "后端服务将在数据库初始化后启动"
+
+echo ""
+echo "========================================"
+echo "  部署完成！"
+echo "========================================"
+echo ""
+echo "后续手动操作："
+echo "  1. 编辑 ${BACKEND_DIR}/.env.production，填写数据库密码和密钥"
+echo "  2. 初始化数据库："
+echo "     mysql -u root -p < ${APP_DIR}/database/schema.sql"
+echo "     cd ${BACKEND_DIR} && source venv/bin/activate && python init_db.py"
+echo "  3. 启动后端: sudo systemctl restart fatigue-driving"
+echo "  4. 访问 http://服务器IP"
+echo "  5. 如果 Nginx 未启动: sudo systemctl enable --now nginx"
+echo ""
